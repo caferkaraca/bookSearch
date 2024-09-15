@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kitap Arama ve Kaydetme</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        .book-list {
+            display: flex;
+            flex-wrap: wrap;
+        }
+        .book-item {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin: 10px;
+            width: 200px;
+            background-color: #fff;
+            cursor: pointer;
+        }
+        .book-item img {
+            max-width: 100%;
+            height: auto;
+        }
+        .book-item h3 {
+            font-size: 1.1em;
+            margin: 10px 0 5px;
+        }
+        .book-item p {
+            font-size: 0.9em;
+            color: #555;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background: #fff;
+            padding: 20px;
+            border-radius: 5px;
+            width: 80%;
+            max-width: 600px;
+            position: relative;
+        }
+        .modal-content img {
+            max-width: 100%;
+            height: auto;
+        }
+        .close {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 1.5em;
+            cursor: pointer;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <h1>Kitap Arama ve Kaydetme</h1>
+    <input type="text" id="searchInput" placeholder="Kitap adı girin">
+    <button onclick="searchBooks()">Ara</button>
+    
+    <div id="bookResults" class="book-list"></div>
+
+    <!-- Modal for displaying book details -->
+    <div id="bookModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2 id="modalTitle"></h2>
+            <img id="modalCover" src="" alt="">
+            <p><strong>Yazar(lar):</strong> <span id="modalAuthors"></span></p>
+            <p><strong>Yayımlanma Tarihi:</strong> <span id="modalPublishedDate"></span></p>
+            <p><strong>Özet:</strong> <span id="modalDescription"></span></p>
+            <p><strong>Yayınevi:</strong> <span id="modalPublisher"></span></p>
+            <form method="POST">
+                <input type="hidden" id="bookId" name="bookId">
+                <input type="hidden" id="bookTitle" name="bookTitle">
+                <input type="hidden" id="bookAuthor" name="bookAuthor">
+                <input type="hidden" id="bookCover" name="bookCover">
+            </form>
+        </div>
+    </div>
+
+    <script>
+        async function searchBooks() {
+            const query = document.getElementById('searchInput').value;
+            const googleBooksUrl = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=20`;
+            const openLibraryUrl = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=20`;
+
+            try {
+                const [googleBooksResponse, openLibraryResponse] = await Promise.all([
+                    fetch(googleBooksUrl).then(response => response.json()),
+                    fetch(openLibraryUrl).then(response => response.json())
+                ]);
+
+                const googleBooks = googleBooksResponse.items || [];
+                const openLibraryBooks = openLibraryResponse.docs || [];
+
+                const allBooks = [
+                    ...googleBooks.map(book => ({
+                        id: book.id,
+                        title: book.volumeInfo.title || 'Başlık bulunamadı',
+                        authors: book.volumeInfo.authors ? book.volumeInfo.authors.join(', ') : 'Yazar bilgisi yok',
+                        publishedDate: book.volumeInfo.publishedDate || '',
+                        coverImg: book.volumeInfo.imageLinks ? book.volumeInfo.imageLinks.thumbnail : '',
+                        description: book.volumeInfo.description || 'Açıklama bulunamadı',
+                        publisher: book.volumeInfo.publisher || 'Yayınevi bilgisi yok'
+                    })),
+                    ...openLibraryBooks.map(book => ({
+                        id: book.key,
+                        title: book.title_suggest || 'Başlık bulunamadı',
+                        authors: book.author_name ? book.author_name.join(', ') : 'Yazar bilgisi yok',
+                        publishedDate: book.cover_i ? `https://covers.openlibrary.org/b/id/${book.cover_i}-M.jpg` : '',
+                        coverImg: book.cover_i ? `https://covers.openlibrary.org/b/id/${book.cover_i}-M.jpg` : '',
+                        description: book.first_sentence ? book.first_sentence.join(' ') : 'Açıklama bulunamadı',
+                        publisher: book.publisher ? book.publisher.join(', ') : 'Yayınevi bilgisi yok'
+                    }))
+                ];
+
+                // Tarihe göre sıralama (güncelden eskiye)
+                allBooks.sort((a, b) => {
+                    const dateA = new Date(a.publishedDate);
+                    const dateB = new Date(b.publishedDate);
+                    return dateB - dateA;
+                });
+
+                displayBooks(allBooks);
+            } catch (error) {
+                console.error('Hata:', error);
+                document.getElementById('bookResults').innerHTML = '<p>Kitaplar getirilemedi.</p>';
+            }
+        }
+
+        function displayBooks(books) {
+            const bookResults = document.getElementById('bookResults');
+            bookResults.innerHTML = ''; // Önceki sonuçları temizle
+
+            if (books.length > 0) {
+                books.forEach(book => {
+                    const bookItem = document.createElement('div');
+                    bookItem.className = 'book-item';
+                    bookItem.onclick = () => showBookDetails(book);
+
+                    let coverImgTag = '';
+                    if (book.coverImg) {
+                        coverImgTag = `<img src="${book.coverImg}" alt="${book.title}">`;
+                    }
+
+                    bookItem.innerHTML = `
+                        ${coverImgTag}
+                        <h3>${book.title}</h3>
+                        <p><strong>Yazar(lar):</strong> ${book.authors}</p>
+                        <p><strong>Yayımlanma Tarihi:</strong> ${book.publishedDate}</p>
+                    `;
+
+                    bookResults.appendChild(bookItem);
+                });
+            } else {
+                bookResults.innerHTML = '<p>Kitap bulunamadı.</p>';
+            }
+        }
+
+        function showBookDetails(book) {
+            document.getElementById('modalTitle').innerText = book.title;
+            document.getElementById('modalCover').src = book.coverImg || '';
+            document.getElementById('modalAuthors').innerText = book.authors;
+            document.getElementById('modalPublishedDate').innerText = book.publishedDate;
+            document.getElementById('modalDescription').innerText = book.description;
+            document.getElementById('modalPublisher').innerText = book.publisher;
+            document.getElementById('bookId').value = book.id;
+            document.getElementById('bookTitle').value = book.title;
+            document.getElementById('bookAuthor').value = book.authors;
+            document.getElementById('bookCover').value = book.coverImg;
+
+            document.getElementById('bookModal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('bookModal').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
